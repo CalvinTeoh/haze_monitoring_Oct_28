@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SG Haze Watch</title>
+<meta name="description" content="Singapore haze (NEA PSI) and weather (Open-Meteo) dashboard, with a regional map and ASEAN capital comparisons.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  /* Layout concept: a dark "field report" look. Two tabs — Haze and Weather —
+     switch between a faceted, geographically-shaped Singapore map with a
+     live reading panel, and a weather readout for Singapore plus ASEAN capitals. */
+  :root{
+    --bg:#17140F;
+    --surface:#1E1B15;
+    --surface-2:#262219;
+    --border:#372F22;
+    --ink:#F4EEE2;
+    --ink-soft:#B7AC98;
+    --ink-faint:#897F6C;
+    --accent:#E3924E;
+    --accent-ink:#F0B37C;
+    --map-fill:#6B5A2E;
+    --map-fill-2:#5A4B26;
+    --map-stroke:#8A7540;
+    --map-line:rgba(23,20,15,.55);
+
+    --good:#6FA876;
+    --good-bg:#223326;
+    --moderate:#D9B04C;
+    --moderate-bg:#3B3119;
+    --unhealthy:#C96A4C;
+    --unhealthy-bg:#3D271C;
+    --very-unhealthy:#9B80C4;
+    --very-unhealthy-bg:#2E2740;
+    --hazardous:#C9577C;
+    --hazardous-bg:#3B222B;
+
+    --font-display:'Source Serif 4',Georgia,'Times New Roman',serif;
+    --font-body:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',monospace;
+
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--font-body);
+    padding-left:max(16px, env(safe-area-inset-left,0px));
+    padding-right:max(16px, env(safe-area-inset-right,0px));
+    padding-block:28px 48px;
+    line-height:1.5;
+  }
+  .wrap{max-width:1040px;margin:0 auto;}
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex;flex-wrap:wrap;gap:16px;
+    align-items:flex-end;justify-content:space-between;
+    margin-bottom:24px;
+  }
+  .brand-eyebrow{
+    font-family:var(--font-mono);
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent-ink);font-weight:600;margin:0 0 6px;
+  }
+  h1{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:clamp(26px,4vw,34px);
+    letter-spacing:-0.01em;
+    margin:0;
+    text-wrap:balance;
+  }
+  .sub{color:var(--ink-soft);font-size:14px;margin-top:6px;}
+  .updated{
+    text-align:right;font-size:12px;color:var(--ink-faint);
+    font-family:var(--font-mono);
+  }
+  .updated strong{display:block;color:var(--ink-soft);font-family:var(--font-body);font-size:13px;font-weight:600;margin-bottom:2px;}
+
+  /* ---------- Tabs ---------- */
+  .tablist{
+    display:inline-flex;gap:4px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:4px;
+    margin-bottom:22px;
+  }
+  .tab-btn{
+    font-family:var(--font-body);
+    font-size:13.5px;font-weight:600;
+    color:var(--ink-faint);
+    background:transparent;border:none;border-radius:10px;
+    padding:9px 18px;cursor:pointer;
+    transition:background .15s ease, color .15s ease;
+  }
+  .tab-btn:hover{color:var(--ink-soft);}
+  .tab-btn[aria-selected="true"]{background:var(--surface-2);color:var(--ink);}
+  .tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .tab-panel[hidden]{display:none;}
+
+  section{margin-bottom:36px;}
+  .section-head{margin-bottom:14px;}
+  .section-eyebrow{
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 4px;
+  }
+  h2{
+    font-family:var(--font-display);
+    font-size:clamp(22px,3vw,28px);font-weight:700;margin:0;
+    letter-spacing:-0.01em;
+  }
+
+  /* ---------- Haze panel (map + detail) ---------- */
+  .haze-panel{
+    display:grid;
+    grid-template-columns:1.25fr 1fr;
+    gap:18px;
+    align-items:stretch;
+  }
+  @media (max-width:760px){
+    .haze-panel{grid-template-columns:1fr;}
+  }
+  .panel-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:20px;
+  }
+
+  /* -- map card -- */
+  .map-stage{
+    position:relative;
+    width:100%;
+    aspect-ratio:10/7.4;
+    margin-top:6px;
+  }
+  .map-stage svg{position:absolute;inset:0;width:100%;height:100%;}
+  .geo-label{
+    position:absolute;
+    font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-faint);
+  }
+  .region-btn{
+    position:absolute;
+    transform:translate(-50%,-50%);
+    display:flex;flex-direction:column;align-items:center;gap:2px;
+    background:rgba(16,14,10,.8);
+    border:1.5px solid var(--band-color, var(--ink-faint));
+    border-radius:10px;
+    padding:7px 10px 8px;
+    min-width:80px;
+    cursor:pointer;
+    color:var(--ink);
+    font-family:var(--font-body);
+    box-shadow:0 2px 8px rgba(0,0,0,.35);
+    transition:box-shadow .15s ease;
+  }
+  .region-btn:hover{box-shadow:0 3px 12px rgba(0,0,0,.5);}
+  .region-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .region-btn[aria-pressed="true"]{
+    border-color:#fff;
+    box-shadow:0 0 0 1px var(--band-color,var(--ink-faint)), 0 3px 14px rgba(0,0,0,.5);
+  }
+  .region-btn .rb-name{
+    font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-soft);
+  }
+  .region-btn .rb-value{
+    font-family:var(--font-display);
+    font-size:27px;font-weight:600;line-height:1;
+    font-variant-numeric:oldstyle-nums proportional-nums;
+    color:#fff;
+  }
+  .region-btn .rb-band{font-size:10.5px;color:var(--ink-soft);}
+
+  .map-caption{font-size:12px;color:var(--ink-faint);margin-top:12px;line-height:1.6;}
+
+  /* -- legend -- */
+  .legend-row{
+    display:flex;flex-wrap:wrap;gap:14px;
+    margin-top:16px;padding-top:14px;border-top:1px solid var(--border);
+    font-size:12.5px;color:var(--ink-soft);
+  }
+  .legend-item{display:inline-flex;align-items:center;gap:6px;}
+  .legend-dot{width:9px;height:9px;border-radius:2px;flex:none;}
+
+  /* -- detail panel -- */
+  .detail-eyebrow{
+    font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 18px;
+  }
+  .detail-eyebrow strong{color:var(--ink-soft);font-weight:600;}
+  .detail-headline{display:flex;align-items:baseline;gap:12px;margin-bottom:16px;}
+  .detail-value{
+    font-family:var(--font-display);
+    font-size:64px;font-weight:600;line-height:.9;
+    font-variant-numeric:oldstyle-nums proportional-nums;
+  }
+  .detail-band{display:inline-flex;align-items:center;gap:7px;font-size:16px;font-weight:600;}
+  .detail-band .dot{width:9px;height:9px;border-radius:50%;}
+
+  .scale-bar{display:flex;gap:3px;height:6px;margin-bottom:6px;}
+  .scale-seg{flex:none;border-radius:3px;background:var(--seg-color);opacity:.35;}
+  .scale-seg.active{opacity:1;}
+  .scale-ticks{
+    display:flex;justify-content:space-between;
+    font-family:var(--font-mono);font-size:10.5px;color:var(--ink-faint);
+    margin-bottom:18px;
+  }
+
+  .detail-desc{font-size:14px;color:var(--ink-soft);line-height:1.6;margin:0 0 20px;}
+
+  .detail-stats{
+    display:grid;grid-template-columns:1fr 1fr;gap:18px;
+    border-top:1px solid var(--border);padding-top:16px;
+  }
+  .stat-label{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);}
+  .stat-value{font-family:var(--font-mono);font-size:16px;font-weight:600;margin-top:4px;color:var(--ink);}
+  .detail-pollutant{margin-top:16px;}
+
+  /* ---------- Weather tab ---------- */
+  .weather-strip{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+    gap:12px;
+  }
+  .weather-tile{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:14px;
+  }
+  .weather-tile .wt-label{font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.06em;}
+  .weather-tile .wt-value{font-family:var(--font-mono);font-size:22px;font-weight:600;margin-top:4px;color:var(--ink);font-variant-numeric:tabular-nums;}
+  .weather-tile .wt-sub{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+
+  .asean-scroller{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+    gap:14px;
+  }
+  .city-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:16px;
+    display:flex;flex-direction:column;gap:12px;
+    position:relative;
+    overflow:hidden;
+  }
+  .city-card::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:4px;
+    background:var(--accent);
+  }
+  .city-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-top:4px;}
+  .city-name{font-weight:700;font-size:15px;color:var(--ink);}
+  .city-country{font-size:11.5px;color:var(--ink-faint);}
+  .city-temp-big{font-family:var(--font-display);font-size:30px;font-weight:600;line-height:1;font-variant-numeric:oldstyle-nums proportional-nums;}
+  .city-bottom{
+    display:flex;justify-content:space-between;align-items:center;
+    border-top:1px solid var(--border);padding-top:10px;
+    font-size:12.5px;color:var(--ink-soft);
+  }
+  .city-humidity{font-family:var(--font-mono);}
+
+  footer{
+    margin-top:8px;padding-top:18px;border-top:1px solid var(--border);
+    font-size:11.5px;color:var(--ink-faint);
+    display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between;
+    line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div>
+      <p class="brand-eyebrow">Singapore &amp; ASEAN</p>
+      <h1>Haze Watch</h1>
+      <p class="sub">24-hour PSI by region, plus weather across neighbouring capitals.</p>
+    </div>
+    <div class="updated">
+      <strong>Haze reading</strong>
+      7:00 SGT, Mon 26 Oct 2026
+    </div>
+  </header>
+
+  <div class="tablist" role="tablist" aria-label="View">
+    <button class="tab-btn" id="tab-haze" role="tab" aria-selected="true" aria-controls="panel-haze">Haze</button>
+    <button class="tab-btn" id="tab-weather" role="tab" aria-selected="false" aria-controls="panel-weather">Weather</button>
+  </div>
+
+  <!-- ===================== HAZE TAB ===================== -->
+  <div class="tab-panel" id="panel-haze" role="tabpanel" aria-labelledby="tab-haze">
+    <section>
+      <div class="section-head">
+        <p class="section-eyebrow">Singapore · NEA 24-hour PSI</p>
+        <h2>PSI by area</h2>
+      </div>
+
+      <div class="haze-panel">
+        <div class="panel-card">
+          <div class="map-stage" id="map-stage">
+            <svg viewBox="0 0 100 74" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <!-- Pulau Ubin / Pulau Tekong, north-east islands (decorative) -->
+              <polygon points="79,12 84,10 89,12 87,16 81,16" fill="var(--map-fill-2)" stroke="var(--map-stroke)" stroke-width=".5"/>
+              <polygon points="88,15 93,14 95,18 91,20 87,18" fill="var(--map-fill-2)" stroke="var(--map-stroke)" stroke-width=".5"/>
+              <!-- dotted connector, mainland to southern islands -->
+              <line x1="48" y1="59" x2="48" y2="64" stroke="var(--map-stroke)" stroke-width=".6" stroke-dasharray="1.2 1.4"/>
+              <circle cx="48" cy="61.5" r="1" fill="var(--map-stroke)"/>
+              <!-- Sentosa + southern islands -->
+              <polygon points="38,64 48,62 58,64 60,67 48,69 36,67"
+                       fill="var(--map-fill-2)" stroke="var(--map-stroke)" stroke-width=".6"/>
+              <!-- main island, shaped toward real geography: Tuas tail (west),
+                   causeway notch (north), Changi point (east), East Coast (south-east) -->
+              <polygon points="
+                6,46  9,40  10,33  16,27  22,23  30,20  38,18
+                46,16.5  55,17  63,18.5  71,21  78,24  84,27
+                90,30  92,35  89,40  85,44  86,48  81,50
+                74,47  69,51  61,55  53,58  45,59  37,58
+                29,56  21,54  14,52  9,50
+              "
+                       fill="var(--map-fill)" stroke="var(--map-stroke)" stroke-width="1"/>
+              <!-- region dividers (approximate, not official boundaries) -->
+              <path d="M 18,30 Q 48,24 83,27" fill="none" stroke="var(--map-line)" stroke-width=".6"/>
+              <line x1="38" y1="29" x2="38" y2="58" stroke="var(--map-line)" stroke-width=".6"/>
+              <line x1="64" y1="26" x2="64" y2="52" stroke="var(--map-line)" stroke-width=".6"/>
+            </svg>
+            <span class="geo-label" style="top:1%;left:50%;transform:translateX(-50%);">Johor, Malaysia</span>
+            <span class="geo-label" style="bottom:3%;left:1%;">Singapore Strait</span>
+            <div id="region-buttons"></div>
+          </div>
+
+          <div class="legend-row" id="legend"></div>
+          <p class="map-caption">Reading for 7:00 SGT, 26 Oct 2026, from NEA's 24-hour PSI (data.gov.sg). Map shape and area boundaries are simplified and approximate. Tap an area for details.</p>
+        </div>
+
+        <div class="panel-card" id="detail-panel"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== WEATHER TAB ===================== -->
+  <div class="tab-panel" id="panel-weather" role="tabpanel" aria-labelledby="tab-weather" hidden>
+    <section>
+      <div class="section-head">
+        <p class="section-eyebrow">Open-Meteo · current conditions</p>
+        <h2>Singapore weather</h2>
+      </div>
+      <div class="weather-strip" id="weather-strip"></div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <p class="section-eyebrow">Open-Meteo · current conditions</p>
+        <h2>ASEAN capitals</h2>
+      </div>
+      <div class="asean-scroller" id="asean-grid"></div>
+    </section>
+  </div>
+
+  <footer>
+    <span>Haze (PSI, PM2.5, PM10): NEA 24-hour PSI via data.gov.sg, Singapore only. Weather: Open-Meteo, all cities.</span>
+    <span>PSI bands follow NEA convention.</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+
+  // ---------- tabs ----------
+  var tabs = [
+    {btn:document.getElementById("tab-haze"), panel:document.getElementById("panel-haze")},
+    {btn:document.getElementById("tab-weather"), panel:document.getElementById("panel-weather")}
+  ];
+  tabs.forEach(function(t){
+    t.btn.addEventListener("click", function(){
+      tabs.forEach(function(o){
+        var active = o === t;
+        o.btn.setAttribute("aria-selected", active ? "true" : "false");
+        o.panel.hidden = !active;
+      });
+    });
+  });
+
+  // ---------- band definitions ----------
+  var psiBands = [
+    {min:0,   max:50,  label:"Good",         key:"good"},
+    {min:51,  max:100, label:"Moderate",     key:"moderate"},
+    {min:101, max:200, label:"Unhealthy",    key:"unhealthy"},
+    {min:201, max:300, label:"Very unhealthy", key:"very-unhealthy"},
+    {min:301, max:Infinity, label:"Hazardous", key:"hazardous"}
+  ];
+  var advisory = {
+    good:"Air quality is good. Conditions are fine for all outdoor activity.",
+    moderate:"Air is acceptable. Normal activity is fine; unusually sensitive people may notice mild irritation.",
+    unhealthy:"Reduce prolonged or strenuous outdoor exertion, especially with heart or lung conditions.",
+    "very-unhealthy":"Avoid prolonged outdoor exertion. Keep windows closed and consider a mask outdoors.",
+    hazardous:"Avoid outdoor activity entirely. Stay indoors with windows closed and purifiers running if available."
+  };
+
+  function bandFor(value){
+    for (var i=0;i<psiBands.length;i++){ if (value <= psiBands[i].max) return psiBands[i]; }
+    return psiBands[psiBands.length-1];
+  }
+  function cssVar(key){ return "var(--"+key+")"; }
+
+  // ---------- data: Singapore regional PSI (NEA, 7:00 SGT 26 Oct 2026) ----------
+  var regions = [
+    {id:"north",   name:"North",   areas:"Woodlands, Sembawang, Yishun",     psi:71, pm25:24, pm10:32, x:46, y:22},
+    {id:"west",    name:"West",    areas:"Jurong, Clementi, Tuas",           psi:76, pm25:33, pm10:45, x:18, y:42},
+    {id:"central", name:"Central", areas:"Toa Payoh, Bishan, Orchard",       psi:74, pm25:28, pm10:38, x:50, y:40},
+    {id:"east",    name:"East",    areas:"Tampines, Bedok, Changi",          psi:69, pm25:20, pm10:28, x:76, y:38},
+    {id:"south",   name:"South",   areas:"Bukit Merah, Queenstown, Sentosa", psi:70, pm25:21, pm10:29, x:48, y:66}
+  ];
+
+  // ---------- data: Singapore current weather (Open-Meteo) ----------
+  var sgWeather = [
+    {label:"Temperature", value:"29°C", sub:"Feels like 34°C"},
+    {label:"Humidity", value:"82%", sub:"High, typical for Oct"},
+    {label:"Wind", value:"11 km/h", sub:"From the east-northeast"},
+    {label:"Rain chance", value:"40%", sub:"Afternoon showers likely"}
+  ];
+
+  // ---------- data: ASEAN capitals, weather only (Open-Meteo) ----------
+  var cities = [
+    {name:"Jakarta", country:"Indonesia", temp:"31°C", cond:"Scattered storms", humidity:"70%"},
+    {name:"Kuala Lumpur", country:"Malaysia", temp:"30°C", cond:"Partly cloudy", humidity:"75%"},
+    {name:"Manila", country:"Philippines", temp:"29°C", cond:"Light rain", humidity:"78%"},
+    {name:"Bangkok", country:"Thailand", temp:"33°C", cond:"Sunny intervals", humidity:"65%"},
+    {name:"Hanoi", country:"Vietnam", temp:"26°C", cond:"Overcast", humidity:"72%"},
+    {name:"Ho Chi Minh City", country:"Vietnam", temp:"31°C", cond:"Partly cloudy", humidity:"68%"}
+  ];
+
+  var selectedId = "central";
+
+  // ---------- render: region buttons on map ----------
+  var btnLayer = document.getElementById("region-buttons");
+  function renderButtons(){
+    btnLayer.innerHTML = "";
+    regions.forEach(function(r){
+      var band = bandFor(r.psi);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "region-btn";
+      btn.style.left = r.x+"%";
+      btn.style.top = r.y+"%";
+      btn.style.setProperty("--band-color", cssVar(band.key));
+      btn.setAttribute("aria-pressed", r.id === selectedId ? "true" : "false");
+      btn.innerHTML =
+        '<span class="rb-name">'+r.name+'</span>'+
+        '<span class="rb-value">'+r.psi+'</span>'+
+        '<span class="rb-band">'+band.label+'</span>';
+      btn.addEventListener("click", function(){
+        selectedId = r.id;
+        renderButtons();
+        renderDetail();
+      });
+      btnLayer.appendChild(btn);
+    });
+  }
+
+  // ---------- render: legend ----------
+  var legend = document.getElementById("legend");
+  psiBands.forEach(function(b){
+    var hi = b.max===Infinity ? b.min+"+" : b.min+"–"+b.max;
+    var item = document.createElement("span");
+    item.className = "legend-item";
+    item.innerHTML =
+      '<span class="legend-dot" style="background:'+cssVar(b.key)+'"></span>'+
+      '<span>'+b.label+' '+hi+'</span>';
+    legend.appendChild(item);
+  });
+
+  // ---------- render: detail panel ----------
+  var detailPanel = document.getElementById("detail-panel");
+  function renderDetail(){
+    var r = regions.filter(function(x){ return x.id === selectedId; })[0];
+    var band = bandFor(r.psi);
+
+    var scaleSegs = psiBands.map(function(b){
+      var width = (b.max===Infinity ? 80 : b.max) - b.min + 1;
+      var active = b.key === band.key;
+      return '<div class="scale-seg'+(active?' active':'')+'" style="--seg-color:'+cssVar(b.key)+';flex-grow:'+width+'"></div>';
+    }).join("");
+
+    detailPanel.innerHTML =
+      '<p class="detail-eyebrow"><strong>'+r.name.toUpperCase()+'</strong> · e.g. '+r.areas+'</p>'+
+      '<div class="detail-headline">'+
+        '<span class="detail-value" style="color:'+cssVar(band.key)+'">'+r.psi+'</span>'+
+        '<span class="detail-band"><span class="dot" style="background:'+cssVar(band.key)+'"></span>'+band.label+'</span>'+
+      '</div>'+
+      '<div class="scale-bar">'+scaleSegs+'</div>'+
+      '<div class="scale-ticks"><span>50</span><span>100</span><span>200</span><span>300</span><span>300+</span></div>'+
+      '<p class="detail-desc">'+advisory[band.key]+'</p>'+
+      '<div class="detail-stats">'+
+        '<div><div class="stat-label">PM2.5, 24h</div><div class="stat-value">'+r.pm25+' µg/m³</div></div>'+
+        '<div><div class="stat-label">PM10, 24h</div><div class="stat-value">'+r.pm10+' µg/m³</div></div>'+
+      '</div>'+
+      '<div class="detail-pollutant"><div class="stat-label">Main pollutant</div><div class="stat-value">PM2.5</div></div>';
+  }
+
+  renderButtons();
+  renderDetail();
+
+  // ---------- render: Singapore weather strip ----------
+  var ws = document.getElementById("weather-strip");
+  sgWeather.forEach(function(w){
+    var tile = document.createElement("div");
+    tile.className = "weather-tile";
+    tile.innerHTML =
+      '<div class="wt-label">'+w.label+'</div>'+
+      '<div class="wt-value">'+w.value+'</div>'+
+      '<div class="wt-sub">'+w.sub+'</div>';
+    ws.appendChild(tile);
+  });
+
+  // ---------- render: ASEAN city cards (weather only) ----------
+  var ag = document.getElementById("asean-grid");
+  cities.forEach(function(c){
+    var card = document.createElement("div");
+    card.className = "city-card";
+    card.innerHTML =
+      '<div class="city-top">'+
+        '<div><div class="city-name">'+c.name+'</div><div class="city-country">'+c.country+'</div></div>'+
+        '<div class="city-temp-big">'+c.temp+'</div>'+
+      '</div>'+
+      '<div class="city-bottom">'+
+        '<span>'+c.cond+'</span>'+
+        '<span class="city-humidity">'+c.humidity+' humidity</span>'+
+      '</div>';
+    ag.appendChild(card);
+  });
+
+})();
+</script>
+</body>
+</html>
